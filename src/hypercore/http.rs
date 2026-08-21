@@ -1193,7 +1193,7 @@ impl Client {
                 sz: size,
                 reduce_only: false,
                 order_type: OrderTypePlacement::Limit {
-                    tif: TimeInForce::Gtc,
+                    tif: TimeInForce::FrontendMarket,
                 },
                 cloid: Default::default(),
             }],
