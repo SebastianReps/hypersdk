@@ -2039,6 +2039,36 @@ mod tests {
         let _fees = client.user_fees(user).await.unwrap();
     }
 
+    /// The undocumented info requests whose responses this SDK models rather than returning
+    /// as raw JSON. A shape change here is a deserialization failure, which the
+    /// `info_requests_are_still_answered` audit cannot see: it parses everything as
+    /// `serde_json::Value`.
+    #[tokio::test]
+    async fn test_http_undocumented_typed_responses() {
+        let client = hypercore::mainnet();
+        let user = address!("0xdfc24b077bc1425ad1dea75bcb6f8158e10df303");
+
+        let status = client.exchange_status().await.unwrap();
+        assert!(status.time > 0);
+
+        let _legal = client.legal_check(user).await.unwrap();
+        let _routing = client.usdc_routing().await.unwrap();
+        let _check = client.pre_transfer_check(user, user).await.unwrap();
+        let _vip = client.is_vip(user).await.unwrap();
+
+        let table = client.margin_table(50).await.unwrap();
+        assert!(!table.margin_tiers.is_empty());
+
+        let ntls = client.max_market_order_ntls().await.unwrap();
+        assert!(!ntls.is_empty());
+
+        let trades = client.recent_trades("BTC".to_string()).await.unwrap();
+        assert!(!trades.is_empty());
+
+        let ips = client.gossip_root_ips().await.unwrap();
+        assert!(!ips.is_empty());
+    }
+
     #[tokio::test]
     async fn test_http_all_mids() {
         let client = hypercore::mainnet();

@@ -85,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
                                 cloid: Cloid::random(),
                             },
                         }],
+                        always_place: false,
                     },
                     nonce.next(),
                     vault_address,

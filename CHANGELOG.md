@@ -18,16 +18,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Optional `destination` on the `reserveRequestWeight` action, to credit reserved capacity to another account
 - New example: `examples/hypercore/websocket_post.rs`
 - Two ignored live-audit tests, `info_requests_are_still_answered` and `deployer_action_shapes_are_still_accepted`, that walk the SDK's surface against the real API
+- Single-order `modify` action, as `Action::Modify` and `HttpClient::modify_order`. `batchModify` was the only form covered before
+- `always_place` on `Modify` and `BatchModify`, serialized as `a` and omitted when false, which places the replacement order even if the cancel failed
+- `spotDeploy` variants `setTokenAnnotation` and `setDeployerLabel`
+- `outcomeDeploy` variant `setSubDeployers`, which grants a sub-deployer one HIP-4 action
+- Eighteen undocumented exchange actions the exchange accepts but the docs do not mention, each with an `HttpClient` method: `borrowLend`, `createSubAccount`, `subAccountModify`, `subAccountTransfer`, `subAccountSpotTransfer`, `createVault`, `vaultModify`, `vaultDistribute`, `setDisplayName`, `setReferrer`, `registerReferrer`, `spotUser`, `finalizeEvmContract`, `CSignerAction`, `CValidatorAction`, `linkStakingUser`, `stakingLinkDisableTradingUser`, and `userPortfolioMargin`
+- Nineteen undocumented info requests, each with an `HttpClient` method: `exchangeStatus`, `gossipRootIps`, `isVip`, `leadingVaults`, `legalCheck`, `liquidatable`, `marginTable`, `maxMarketOrderNtls`, `preTransferCheck`, `recentTrades`, `subAccounts2`, `twapHistory`, `usdcRouting`, `userBorrowLendInterest`, `userTwapSliceFillsByTime`, `validatorL1Votes`, `validatorSummaries`, `vaultSummaries`, and `webData2`
+- WS subscriptions `assetCtxs`, `spotAssetCtxs`, and `userHistoricalOrders`
+- `Incoming::Error`, carrying the `error` channel. A rejected subscription used to be logged and dropped, so a removed subscription looked like a feed that never sent anything
+- Live-audit tests `subscriptions_are_still_accepted` and `undocumented_action_shapes_are_accepted`, covering the two surfaces the existing audits missed
 
 ### Removed
 
 - `HttpClient::aligned_quote_token_info` and `InfoRequest::AlignedQuoteTokenInfo`. The endpoint no longer exists: mainnet and testnet both reject it with the same error they give an unknown request type, and it is absent from the docs
+- **Breaking**: `Subscription::WebData2` and `Incoming::WebData2`. The exchange rejects the subscription; `webData3` replaces it. The `webData2` *info* request still works and is now available as `HttpClient::web_data2`
 
 ### Changed
 
 - **Breaking**: `BatchCancel` and `BatchCancelCloid` gained a `fast` field, so struct literals need `fast: false`
+- **Breaking**: `BatchModify` gained an `always_place` field, so struct literals need `always_place: false`
+- **Breaking**: HIP-4 outcome deployment moved from `SpotDeployAction::Outcome` to its own `Action::OutcomeDeploy`, sent as `{"type": "outcomeDeploy", ...}`. The exchange stopped parsing the old nesting. Use `HttpClient::outcome_deploy`
 - **Breaking**: `HttpClient::reserve_request_weight` takes a `destination: Option<Address>` argument
 - `Response`, `OkResponse`, `OrderResponseStatus`, and `ActionRequest` now derive `Clone`; `Response`, `OkResponse`, and `OrderResponseStatus` also derive `Serialize`
+- `OkResponse` gained `CreateSubAccount` and `CreateVault`, which carry the address the exchange assigns
+- All three signing paths (`sign`, `sign_sync`, `prehash`) now share one exhaustive match over `Action`, so adding an action is one edit instead of three
 
 ## [v0.2.10]
 

@@ -8,6 +8,7 @@
 //!
 //! - [`SpotDeployAction`] is `{"type": "spotDeploy", "<variant>": {...}}`
 //! - [`PerpDeployAction`] is `{"type": "perpDeploy", "<variant>": {...}}`
+//! - [`OutcomeDeployAction`] is `{"type": "outcomeDeploy", "<variant>": {...}}`
 //! - [`ActivateOutcomeDeployer`] is `{"type": "activateOutcomeDeployer", "<variant>": {...}}`
 //!
 //! # Sorting
@@ -30,7 +31,7 @@ use serde::{Deserialize, Serialize};
 // HIP-1 / HIP-2 SPOT DEPLOY
 // ========================================================
 
-/// A HIP-1/HIP-2 spot deploy action, or a HIP-4 outcome deploy action.
+/// A HIP-1/HIP-2 spot deploy action.
 ///
 /// Deploying a token is a five-step sequence: [`RegisterToken2`](Self::RegisterToken2),
 /// [`UserGenesis`](Self::UserGenesis), [`Genesis`](Self::Genesis),
@@ -58,8 +59,15 @@ pub enum SpotDeployAction {
     EnableQuoteToken(TokenRef),
     /// Stop the token being used as a quote asset.
     DisableQuoteToken(TokenRef),
-    /// HIP-4 outcome market deployment and settlement.
-    Outcome(OutcomeDeployAction),
+    /// Set the category, description and keywords shown for the token.
+    ///
+    /// Can be changed at most once per day.
+    SetTokenAnnotation(SetTokenAnnotation),
+    /// Set the label displayed on all of the deployer's tokens.
+    ///
+    /// Can only be set once per deployer, and must be unique across perp DEX names and other
+    /// deployer labels.
+    SetDeployerLabel(SetDeployerLabel),
     //
     // `enableAlignedQuoteToken` and `disableAlignedQuoteToken` are documented but not
     // implemented: both mainnet and testnet reject them at the JSON parser for every payload
@@ -168,6 +176,40 @@ pub struct SetDeployerTradingFeeShare {
     pub share: String,
 }
 
+/// Set the annotation displayed for a spot token.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SetTokenAnnotation {
+    /// Token index.
+    pub token: u32,
+    /// The annotation to display.
+    pub annotation: TokenAnnotation,
+}
+
+/// The text shown for a token, carried by [`SetTokenAnnotation`].
+///
+/// The same shape is used for perps by [`SetPerpAnnotation`], which keys it by coin instead.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenAnnotation {
+    /// Category, at most 15 characters.
+    pub category: String,
+    /// Description, at most 400 characters.
+    pub description: String,
+    /// Short display name, at most 9 characters.
+    pub display_name: Option<String>,
+    /// At most 2 keywords, each at most 10 characters.
+    pub keywords: Vec<String>,
+}
+
+/// Set the label shown on all of a deployer's tokens.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SetDeployerLabel {
+    /// 2 to 4 lowercase characters. Unique across perp DEXes and other deployer labels.
+    pub label: String,
+}
+
 // ========================================================
 // HIP-4 OUTCOME DEPLOY
 // ========================================================
@@ -195,7 +237,10 @@ pub struct OutcomeVenue {
     pub venue_name: String,
 }
 
-/// The `outcome` family of `spotDeploy`: HIP-4 market deployment and settlement.
+/// HIP-4 outcome market deployment and settlement.
+///
+/// Sent as its own action, `{"type": "outcomeDeploy", "<variant>": {...}}`. It used to be
+/// nested under `spotDeploy` as an `outcome` field; the exchange stopped parsing that shape.
 ///
 /// <https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/hip-4-deployer-actions#action-reference>
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -213,6 +258,14 @@ pub enum OutcomeDeployAction {
     ///
     /// Replaces the discontinued `settleQuestion`.
     SettleQuestion2(SettleQuestion2),
+    /// Grant or revoke sub-deployer permissions.
+    ///
+    /// Each [`SubDeployerInput::variant`] names an [`OutcomeDeployAction`] variant. The
+    /// `settleQuestion` grant authorizes [`SettleQuestion2`](Self::SettleQuestion2).
+    ///
+    /// Unlike the HIP-3 form this carries a bare list, with no DEX name: outcome deployers
+    /// have exactly one venue.
+    SetSubDeployers(Vec<SubDeployerInput>),
 }
 
 /// An instantiation of an outcome template.
@@ -681,10 +734,10 @@ mod tests {
         );
     }
 
-    /// The outcome family nests one level deeper: `spotDeploy` -> `outcome` -> variant.
+    /// `outcomeDeploy` is its own action, not a field of `spotDeploy`.
     #[test]
-    fn outcome_deploy_nests_under_spot_deploy() {
-        let action = Action::SpotDeploy(SpotDeployAction::Outcome(
+    fn outcome_deploy_is_a_top_level_action() {
+        let action = Action::OutcomeDeploy(
             OutcomeDeployAction::RegisterStandaloneOutcomeFromTemplate(TemplateInstance::new(
                 "abc",
                 [
@@ -694,25 +747,84 @@ mod tests {
                 ],
                 dec!(1),
             )),
-        ));
+        );
 
         // Keywords are sorted on construction, as the exchange requires.
         assert_eq!(
             serde_json::to_value(&action).unwrap(),
             json!({
+                "type": "outcomeDeploy",
+                "registerStandaloneOutcomeFromTemplate": {
+                    "id": "abc",
+                    "keywordToValue": [
+                        ["expiry", "20260801-0600"],
+                        ["target", "100"],
+                        ["underlying", "ABC"]
+                    ],
+                    "deployerFeeScale": "1"
+                }
+            })
+        );
+    }
+
+    /// The HIP-4 sub-deployer grant carries a bare list, unlike the HIP-3 one.
+    #[test]
+    fn outcome_set_sub_deployers_has_no_dex() {
+        let action = Action::OutcomeDeploy(OutcomeDeployAction::SetSubDeployers(vec![
+            SubDeployerInput {
+                variant: "settleOutcome".to_string(),
+                user: Address::ZERO,
+                allowed: true,
+            },
+        ]));
+
+        assert_eq!(
+            serde_json::to_value(&action).unwrap(),
+            json!({
+                "type": "outcomeDeploy",
+                "setSubDeployers": [{
+                    "variant": "settleOutcome",
+                    "user": "0x0000000000000000000000000000000000000000",
+                    "allowed": true
+                }]
+            })
+        );
+    }
+
+    /// The two spot annotation variants that the docs list but the SDK used to omit.
+    #[test]
+    fn spot_deploy_annotation_variants_serialize() {
+        let action = Action::SpotDeploy(SpotDeployAction::SetTokenAnnotation(SetTokenAnnotation {
+            token: 7,
+            annotation: TokenAnnotation {
+                category: "meme".to_string(),
+                description: "a token".to_string(),
+                display_name: None,
+                keywords: vec!["dog".to_string()],
+            },
+        }));
+        assert_eq!(
+            serde_json::to_value(&action).unwrap(),
+            json!({
                 "type": "spotDeploy",
-                "outcome": {
-                    "registerStandaloneOutcomeFromTemplate": {
-                        "id": "abc",
-                        "keywordToValue": [
-                            ["expiry", "20260801-0600"],
-                            ["target", "100"],
-                            ["underlying", "ABC"]
-                        ],
-                        "deployerFeeScale": "1"
+                "setTokenAnnotation": {
+                    "token": 7,
+                    "annotation": {
+                        "category": "meme",
+                        "description": "a token",
+                        "displayName": null,
+                        "keywords": ["dog"]
                     }
                 }
             })
+        );
+
+        let action = Action::SpotDeploy(SpotDeployAction::SetDeployerLabel(SetDeployerLabel {
+            label: "abcd".to_string(),
+        }));
+        assert_eq!(
+            serde_json::to_value(&action).unwrap(),
+            json!({"type": "spotDeploy", "setDeployerLabel": {"label": "abcd"}})
         );
     }
 
@@ -931,40 +1043,52 @@ mod tests {
                 })),
             ),
             (
-                "spotDeploy/outcome/registerStandalone",
-                Action::SpotDeploy(SpotDeployAction::Outcome(
-                    OutcomeDeployAction::RegisterStandaloneOutcomeFromTemplate(
-                        TemplateInstance::new(
+                "spotDeploy/setTokenAnnotation",
+                Action::SpotDeploy(SpotDeployAction::SetTokenAnnotation(SetTokenAnnotation {
+                    token: 99999,
+                    annotation: TokenAnnotation {
+                        category: "test".into(),
+                        description: "test".into(),
+                        display_name: None,
+                        keywords: vec![],
+                    },
+                })),
+            ),
+            (
+                "spotDeploy/setDeployerLabel",
+                Action::SpotDeploy(SpotDeployAction::SetDeployerLabel(SetDeployerLabel {
+                    label: "zzzz".into(),
+                })),
+            ),
+            (
+                "outcomeDeploy/registerStandalone",
+                Action::OutcomeDeploy(OutcomeDeployAction::RegisterStandaloneOutcomeFromTemplate(
+                    TemplateInstance::new(
+                        "abc",
+                        [("expiry".to_string(), "20260801-0600".to_string())],
+                        dec!(1),
+                    ),
+                )),
+            ),
+            (
+                "outcomeDeploy/registerQuestion",
+                Action::OutcomeDeploy(OutcomeDeployAction::RegisterQuestionFromTemplate(
+                    RegisterQuestionFromTemplate {
+                        question_template_instance: TemplateInstance::new(
                             "abc",
-                            [("expiry".to_string(), "20260801-0600".to_string())],
+                            [("expiry".to_string(), "20260801-1830".to_string())],
                             dec!(1),
                         ),
-                    ),
+                        named_outcome_template_instances: vec![NamedOutcomeTemplateInstance::new(
+                            "abc-outcome",
+                            [("choice".to_string(), "A".to_string())],
+                        )],
+                    },
                 )),
             ),
             (
-                "spotDeploy/outcome/registerQuestion",
-                Action::SpotDeploy(SpotDeployAction::Outcome(
-                    OutcomeDeployAction::RegisterQuestionFromTemplate(
-                        RegisterQuestionFromTemplate {
-                            question_template_instance: TemplateInstance::new(
-                                "abc",
-                                [("expiry".to_string(), "20260801-1830".to_string())],
-                                dec!(1),
-                            ),
-                            named_outcome_template_instances: vec![
-                                NamedOutcomeTemplateInstance::new(
-                                    "abc-outcome",
-                                    [("choice".to_string(), "A".to_string())],
-                                ),
-                            ],
-                        },
-                    ),
-                )),
-            ),
-            (
-                "spotDeploy/outcome/registerAndAssociate",
-                Action::SpotDeploy(SpotDeployAction::Outcome(
+                "outcomeDeploy/registerAndAssociate",
+                Action::OutcomeDeploy(
                     OutcomeDeployAction::RegisterAndAssociateNamedOutcomeFromTemplate(
                         RegisterAndAssociateNamedOutcome {
                             question: 3,
@@ -974,44 +1098,41 @@ mod tests {
                             ),
                         },
                     ),
-                )),
+                ),
             ),
             (
-                "spotDeploy/outcome/settleOutcome",
-                Action::SpotDeploy(SpotDeployAction::Outcome(
-                    OutcomeDeployAction::SettleOutcome(OutcomeSettlement {
-                        outcome: 7,
+                "outcomeDeploy/settleOutcome",
+                Action::OutcomeDeploy(OutcomeDeployAction::SettleOutcome(OutcomeSettlement {
+                    outcome: 7,
+                    settle_fraction: dec!(1),
+                    details: String::new(),
+                    name_and_description: ["template:abc".into(), "expiry:20260801-0600".into()],
+                    side_names: ["template:Over".into(), "template:Under".into()],
+                })),
+            ),
+            (
+                "outcomeDeploy/settleQuestion2",
+                Action::OutcomeDeploy(OutcomeDeployAction::SettleQuestion2(SettleQuestion2 {
+                    question: 3,
+                    outcome_settlements: vec![OutcomeSettlement {
+                        outcome: 11,
                         settle_fraction: dec!(1),
                         details: String::new(),
-                        name_and_description: [
-                            "template:abc".into(),
-                            "expiry:20260801-0600".into(),
-                        ],
-                        side_names: ["template:Over".into(), "template:Under".into()],
-                    }),
-                )),
+                        name_and_description: ["template:abc-outcome".into(), "choice:A".into()],
+                        side_names: ["Yes".into(), "No".into()],
+                    }],
+                    name_and_description: ["template:abc".into(), "expiry:20260801-1830".into()],
+                })),
             ),
             (
-                "spotDeploy/outcome/settleQuestion2",
-                Action::SpotDeploy(SpotDeployAction::Outcome(
-                    OutcomeDeployAction::SettleQuestion2(SettleQuestion2 {
-                        question: 3,
-                        outcome_settlements: vec![OutcomeSettlement {
-                            outcome: 11,
-                            settle_fraction: dec!(1),
-                            details: String::new(),
-                            name_and_description: [
-                                "template:abc-outcome".into(),
-                                "choice:A".into(),
-                            ],
-                            side_names: ["Yes".into(), "No".into()],
-                        }],
-                        name_and_description: [
-                            "template:abc".into(),
-                            "expiry:20260801-1830".into(),
-                        ],
-                    }),
-                )),
+                "outcomeDeploy/setSubDeployers",
+                Action::OutcomeDeploy(OutcomeDeployAction::SetSubDeployers(vec![
+                    SubDeployerInput {
+                        variant: "settleOutcome".into(),
+                        user: Address::ZERO,
+                        allowed: true,
+                    },
+                ])),
             ),
             (
                 "activateOutcomeDeployer/activate",

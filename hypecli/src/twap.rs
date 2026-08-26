@@ -544,6 +544,9 @@ impl TwapCmd {
                 oid: OidOrCloid::Left(oid),
                 order,
             }],
+            // The replacement is an ALO chase order, so it is fine for the exchange to drop
+            // it if the cancel lost a race.
+            always_place: false,
         };
 
         match client.modify(signer, batch, nonce(), None, None).await {

@@ -101,6 +101,35 @@ sol! {
         uint64 nonce;
     }
 
+    /// User-signed portfolio margin toggle.
+    ///
+    /// EIP-712 type: `HyperliquidTransaction:UserPortfolioMargin`.
+    struct UserPortfolioMargin {
+        string hyperliquidChain;
+        address user;
+        bool enabled;
+        uint64 nonce;
+    }
+
+    /// User-signed link of a staking account to a trading account.
+    ///
+    /// EIP-712 type: `HyperliquidTransaction:LinkStakingUser`.
+    struct LinkStakingUser {
+        string hyperliquidChain;
+        address user;
+        bool isFinalize;
+        uint64 nonce;
+    }
+
+    /// User-signed removal of a trading account's staking link.
+    ///
+    /// EIP-712 type: `HyperliquidTransaction:StakingLinkDisableTradingUser`.
+    struct StakingLinkDisableTradingUser {
+        string hyperliquidChain;
+        address tradingUser;
+        uint64 nonce;
+    }
+
     struct Withdraw3 {
         string hyperliquidChain;
         string destination;
