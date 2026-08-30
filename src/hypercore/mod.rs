@@ -2067,6 +2067,16 @@ mod tests {
 
         let ips = client.gossip_root_ips().await.unwrap();
         assert!(!ips.is_empty());
+
+        let fundings = client.predicted_fundings().await.unwrap();
+        assert!(!fundings.is_empty());
+        // A coin absent from a venue comes back as null, which is why the venue payload is
+        // optional. Asserting one is present keeps the Option from being reverted.
+        assert!(
+            fundings
+                .iter()
+                .any(|(_, venues)| venues.iter().any(|(_, predicted)| predicted.is_none()))
+        );
     }
 
     #[tokio::test]

@@ -3359,6 +3359,8 @@ pub struct UserFundingEntry {
 pub struct PredictedFundingVenue {
     pub funding_rate: Decimal,
     pub next_funding_time: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub funding_interval_hours: Option<u32>,
 }
 
 /// Staking delegation entry.
