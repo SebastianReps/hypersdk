@@ -11,7 +11,7 @@ readme = "README.md"
 keywords = ["hyperliquid", "cli", "trading", "dex", "perps"]
 categories = ["command-line-utilities", "cryptography::cryptocurrencies"]
 documentation = "https://docs.rs/hypersdk"
-rust-version = "1.89.0"
+rust-version = "1.94.1"
 include = [
   "src/**",
   "README.md",

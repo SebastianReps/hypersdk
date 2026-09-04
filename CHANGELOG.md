@@ -45,6 +45,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `OkResponse` gained `CreateSubAccount` and `CreateVault`, which carry the address the exchange assigns
 - All three signing paths (`sign`, `sign_sync`, `prehash`) now share one exhaustive match over `Action`, so adding an action is one edit instead of three
 
+### Dependencies
+
+- Refreshed every dependency to its latest release. `base64` 0.22 -> 0.23 and `hex-literal` 0.4 -> 1 in the SDK, `iroh-mdns-address-lookup` 0.4 -> 0.5 in hypecli, plus a full lockfile update
+- **Breaking**: MSRV raised to 1.94.1 on both crates. `alloy` 2.4 already required it, so the declared 1.85.0 had not been buildable for a while and was holding back updates to `serde_with`, `ruint`, `icu_*` and the `aws-*` tree
+
 ## [v0.2.10]
 
 ### Added

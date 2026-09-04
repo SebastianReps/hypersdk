@@ -11,7 +11,7 @@ homepage = "https://github.com/infinitefield/hypersdk"
 readme = "README.md"
 keywords = ["hyperliquid", "sdk", "trading", "dex", "perps"]
 documentation = "https://docs.rs/hypersdk"
-rust-version = "1.85.0"
+rust-version = "1.94.1"
 
 include = [
   "abi/**",
