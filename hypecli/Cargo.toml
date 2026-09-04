@@ -20,9 +20,9 @@ include = [
   "Cargo.lock"
 ]
 
-[patch.crates-io]
-alloy-signer-trezor = { git = "https://github.com/infinitefield/alloy-signer-trezor.git", branch = "main" }
-trezor-client = { git = "https://github.com/infinitefield/trezor-firmware.git", branch = "main", subdirectory = "rust/trezor-client" }
+# [patch.crates-io]
+# alloy-signer-trezor = { git = "https://github.com/infinitefield/alloy-signer-trezor.git", branch = "main" }
+# trezor-client = { git = "https://github.com/infinitefield/trezor-firmware.git", branch = "main", subdirectory = "rust/trezor-client" }
 
 [dependencies]
 hypersdk = { path = "..", version = "0.2.13" }
@@ -44,7 +44,7 @@ hex = "0.4.3"
 tokio-util = { version = "0.7.18", features = ["codec"] }
 futures = { version = "0.3.31", default-features = false, features = ["std"] }
 iroh-tickets = "1.0.0"
-iroh-mdns-address-lookup = "0.4.0"
+iroh-mdns-address-lookup = "0.5.0"
 alloy = { version = "2", default-features = false, features = ["signer-keystore", "signer-ledger", "signer-local", "signer-trezor"] }
 derive_more = { version = "2.1.1", features = ["deref"] }
 rpassword = "7.4.0"

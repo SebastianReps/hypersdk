@@ -188,7 +188,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 alloy = { version = "2", default-features = false, features = ["contract", "eip712", "getrandom", "providers", "reqwest", "reqwest-rustls-tls", "rpc", "rpc-types", "signer-local", "signers", "sol-types"] }
 anyhow = "1"
-base64 = "0.22"
+base64 = "0.23"
 thiserror = "2"
 const-hex = { version = "1.17", features = ["serde"] }
 derive_more = { version = "2", features = ["display", "is_variant"] }
@@ -206,7 +206,7 @@ tokio = { version = "1", default-features = false, features = ["test-util", "tim
 tokio-util = { version = "0.7", default-features = false }
 url = "2"
 yawc = { version = "0.3", features = ["simd"] }
-hex-literal = "0.4"
+hex-literal = "1"
 chrono = { version = "0.4", features = ["now"] }
 num-traits = "0.2"
 
