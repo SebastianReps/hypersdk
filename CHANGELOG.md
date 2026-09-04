@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - WS subscriptions `assetCtxs`, `spotAssetCtxs`, and `userHistoricalOrders`
 - `Incoming::Error`, carrying the `error` channel. A rejected subscription used to be logged and dropped, so a removed subscription looked like a feed that never sent anything
 - Live-audit tests `subscriptions_are_still_accepted` and `undocumented_action_shapes_are_accepted`, covering the two surfaces the existing audits missed
+- `PredictedFundingVenue::funding_interval_hours`, the funding interval the exchange reports per venue. Optional: 19 of 627 venue payloads on mainnet omit it
 
 ### Removed
 
@@ -35,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **Breaking**: `HttpClient::predicted_fundings` now returns `Option<PredictedFundingVenue>` for each venue. The exchange sends `null` when a coin is not listed on a venue, which failed to deserialize with `invalid type: null, expected struct PredictedFundingVenue`. On mainnet 69 of 696 venue slots are null, so the endpoint was unusable. `None` means the coin is not listed there, not a zero funding rate
 - **Breaking**: `BatchCancel` and `BatchCancelCloid` gained a `fast` field, so struct literals need `fast: false`
 - **Breaking**: `BatchModify` gained an `always_place` field, so struct literals need `always_place: false`
 - **Breaking**: HIP-4 outcome deployment moved from `SpotDeployAction::Outcome` to its own `Action::OutcomeDeploy`, sent as `{"type": "outcomeDeploy", ...}`. The exchange stopped parsing the old nesting. Use `HttpClient::outcome_deploy`

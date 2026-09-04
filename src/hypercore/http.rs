@@ -2211,10 +2211,14 @@ impl Client {
             .await
     }
 
-    /// Returns predicted funding rates for all coins.
+    /// Returns predicted funding rates for all coins, across every venue the exchange tracks.
+    ///
+    /// A venue's entry is `None` when the coin is not listed there, which is distinct from a
+    /// funding rate of zero. Treating `None` as zero invents a spread against the venues that
+    /// did report one.
     pub async fn predicted_fundings(
         &self,
-    ) -> Result<Vec<(String, Vec<(String, PredictedFundingVenue)>)>> {
+    ) -> Result<Vec<(String, Vec<(String, Option<PredictedFundingVenue>)>)>> {
         let req = InfoRequest::PredictedFundings;
         self.send_info_request("predicted_fundings", &req).await
     }
