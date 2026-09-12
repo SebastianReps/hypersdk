@@ -851,6 +851,8 @@ pub struct PerpMarket {
     pub growth_mode: bool,
     /// Whether the quote token is aligned for this market
     pub aligned_quote_token: bool,
+    /// Whether this market is delisted
+    pub delisted: bool,
     /// Price tick configuration for valid price increments
     pub table: PriceTick,
 }
@@ -1690,6 +1692,7 @@ pub async fn perp_markets(
                 deployer_fee_scale: perp.deployer_fee_scale,
                 growth_mode: perp.growth_mode,
                 aligned_quote_token: perp.aligned_quote_token,
+                delisted: perp.delisted,
                 table: PriceTick::for_perp(perp.sz_decimals),
             }
         })
@@ -1843,6 +1846,8 @@ struct PerpUniverseItem {
     growth_mode: bool,
     #[serde(default, alias = "isAlignedQuoteToken", alias = "isQuoteTokenAligned")]
     aligned_quote_token: bool,
+    #[serde(default, alias = "isDelisted")]
+    delisted: bool,
     // margin_table_id: u64,
 }
 
@@ -2116,6 +2121,28 @@ mod tests {
 
         // Should have spot markets
         assert!(!spots.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_http_delisted_markets() {
+        let exp = [
+            (0, "BTC", false),
+            (1, "ETH", false),
+            (3, "MATIC", true),
+            (5, "SOL", false),
+            (30, "MKR", true),
+            (66, "TON", true),
+        ];
+
+        let client = hypercore::mainnet();
+        let perps = client.perps().await.unwrap();
+
+        for (index, name, delisted) in exp {
+            let market = perps.get(index).unwrap();
+            assert_eq!(market.index, index);
+            assert_eq!(market.name, name);
+            assert_eq!(market.delisted, delisted);
+        }
     }
 
     #[test]
