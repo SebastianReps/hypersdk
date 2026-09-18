@@ -1,5 +1,6 @@
 mod account;
 mod balances;
+mod earn;
 mod markets;
 mod morpho;
 mod multisig;
@@ -18,6 +19,7 @@ mod vault;
 use account::AccountCmd;
 use balances::BalanceCmd;
 use clap::{Args, Parser};
+use earn::EarnCmd;
 use hypersdk::hypercore::Chain;
 use markets::{DexesCmd, PerpsCmd, SpotCmd};
 use morpho::{MorphoApyCmd, MorphoPositionCmd, MorphoVaultApyCmd};
@@ -56,6 +58,9 @@ enum Command {
     Balance(BalanceCmd),
     /// List HIP-3 DEXes
     Dexes(DexesCmd),
+    /// Hyperliquid Earn: supply, withdraw, and query the borrow/lend reserve
+    #[command(subcommand)]
+    Earn(EarnCmd),
     /// List perpetual markets
     Perps(PerpsCmd),
     /// List spot markets
@@ -103,6 +108,7 @@ impl Command {
             Self::Account(cmd) => cmd.run().await,
             Self::Balance(cmd) => cmd.run().await,
             Self::Dexes(cmd) => cmd.run().await,
+            Self::Earn(cmd) => cmd.run().await,
             Self::Perps(cmd) => cmd.run().await,
             Self::Spot(cmd) => cmd.run().await,
             Self::MorphoPosition(cmd) => cmd.run().await,
@@ -636,6 +642,31 @@ Withdraw USDC from a vault:
   Arguments:
     --vault <ADDRESS>    Vault address to deposit into or withdraw from
     --amount <DECIMAL>   Amount of USDC
+
+EARN COMMANDS (Borrow/Lend Reserve)
+-----------------------------------
+
+Earn lends USDC to borrowers; suppliers earn the borrow interest. Token 0 is USDC.
+
+Supply USDC into the Earn reserve (omit --amount for the maximum available):
+  hypecli earn supply \
+    --chain mainnet \
+    --private-key <HEX> \
+    --amount 100
+
+Withdraw supplied USDC (omit --amount for the full position):
+  hypecli earn withdraw \
+    --chain mainnet \
+    --private-key <HEX> \
+    --amount 100
+
+Query reserve rates and your position:
+  hypecli earn status --user <ADDRESS>
+
+  Arguments:
+    --amount <DECIMAL>   Amount to supply or withdraw (omit = max)
+    --token <U32>        Reserve token index (default 0, USDC)
+    --user <ADDRESS>     User address for status
 
 SUBSCRIBE COMMANDS (Real-time WebSocket Data)
 ---------------------------------------------
