@@ -2384,7 +2384,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.5",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -7174,7 +7174,7 @@ dependencies = [
 [[package]]
 name = "trezor-client"
 version = "0.1.6"
-source = "git+https://github.com/infinitefield/trezor-firmware.git?branch=feat%2Feip712-streaming-protocol#a90d18b5967cba462ea36a2e5c5c7d12b2e306e4"
+source = "git+https://github.com/infinitefield/trezor-firmware.git?branch=hypecli-passphrase#cadc114e1bac3ae1ce8b32fbf92e84bc9ad6928c"
 dependencies = [
  "byteorder",
  "hex",
