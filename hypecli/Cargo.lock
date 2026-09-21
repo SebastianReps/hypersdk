@@ -3425,6 +3425,7 @@ version = "0.1.7"
 dependencies = [
  "alloy",
  "anyhow",
+ "async-trait",
  "bytes",
  "chrono",
  "clap",
@@ -3449,6 +3450,7 @@ dependencies = [
  "tabwriter",
  "tokio",
  "tokio-util",
+ "trezor-client",
 ]
 
 [[package]]
@@ -5399,7 +5401,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -7172,8 +7174,7 @@ dependencies = [
 [[package]]
 name = "trezor-client"
 version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87c38ca23d6089dafad1e51137b3dd04546c7b785c8058c1aada839432ec7694"
+source = "git+https://github.com/infinitefield/trezor-firmware.git?branch=feat%2Feip712-streaming-protocol#a90d18b5967cba462ea36a2e5c5c7d12b2e306e4"
 dependencies = [
  "byteorder",
  "hex",

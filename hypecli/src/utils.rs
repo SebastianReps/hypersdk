@@ -10,13 +10,18 @@
 //! - Fuzzy matching for better error messages
 //! - Common query arguments and formatting
 
-use std::path::PathBuf;
 use std::{env::home_dir, str::FromStr};
+use std::{fmt, path::PathBuf};
 
-use alloy::signers::{self, Signer, ledger::LedgerSigner, trezor::TrezorSigner};
+use alloy::{
+    dyn_abi::TypedData,
+    primitives::{Address, B256, ChainId, Signature, U256, normalize_v},
+    signers::{self, Signer, ledger::LedgerSigner},
+};
 use anyhow::Context;
+use async_trait::async_trait;
 use clap::ValueEnum;
-use hypersdk::{Address, hypercore::PrivateKeySigner};
+use hypersdk::hypercore::PrivateKeySigner;
 use iroh::{
     Endpoint, SecretKey,
     address_lookup::{dns::DnsAddressLookup, pkarr::PkarrPublisher},
@@ -25,10 +30,114 @@ use iroh::{
 use iroh_mdns_address_lookup::MdnsAddressLookup;
 use iroh_tickets::endpoint::EndpointTicket;
 use strsim::levenshtein;
+use trezor_client::client::Trezor;
 
 use hypersdk::hypercore::{HttpClient, PerpMarket, PriceTick, SpotMarket};
 
 use crate::SignerArgs;
+
+struct TrezorTypedDataSigner {
+    index: u32,
+    session_id: Vec<u8>,
+    address: Address,
+    chain_id: Option<ChainId>,
+}
+
+impl fmt::Debug for TrezorTypedDataSigner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TrezorTypedDataSigner")
+            .field("index", &self.index)
+            .field("address", &self.address)
+            .finish()
+    }
+}
+
+#[async_trait]
+impl Signer for TrezorTypedDataSigner {
+    async fn sign_hash(&self, _hash: &B256) -> alloy::signers::Result<Signature> {
+        Err(alloy::signers::Error::UnsupportedOperation(
+            alloy::signers::UnsupportedSignerOperation::SignHash,
+        ))
+    }
+
+    async fn sign_dynamic_typed_data(&self, data: &TypedData) -> alloy::signers::Result<Signature> {
+        let message_hash = (data.primary_type != "EIP712Domain")
+            .then(|| data.hash_struct())
+            .transpose()
+            .map_err(alloy::signers::Error::other)?
+            .map(|hash| hash.as_slice().to_vec());
+        let mut client = self.client().map_err(alloy::signers::Error::other)?;
+        let signature = client
+            .ethereum_sign_typed_hash(
+                self.path(),
+                data.domain.separator().as_slice().to_vec(),
+                message_hash,
+            )
+            .map_err(alloy::signers::Error::other)?;
+
+        signature_from_trezor(signature)
+    }
+
+    fn address(&self) -> Address {
+        self.address
+    }
+
+    fn chain_id(&self) -> Option<ChainId> {
+        self.chain_id
+    }
+
+    fn set_chain_id(&mut self, chain_id: Option<ChainId>) {
+        self.chain_id = chain_id;
+    }
+}
+
+impl TrezorTypedDataSigner {
+    async fn new(index: u32, chain_id: Option<ChainId>) -> anyhow::Result<Self> {
+        let mut client = trezor_client::unique(false)?;
+        client.init_device(None)?;
+        let session_id = client
+            .features()
+            .ok_or_else(|| anyhow::anyhow!("could not retrieve Trezor features"))?
+            .session_id()
+            .to_vec();
+        let path = Self::path_for(index);
+        let address = client.ethereum_get_address(path)?.parse()?;
+
+        Ok(Self {
+            index,
+            session_id,
+            address,
+            chain_id,
+        })
+    }
+
+    fn client(&self) -> anyhow::Result<Trezor> {
+        let mut client = trezor_client::unique(false)?;
+        client.init_device(Some(self.session_id.clone()))?;
+        Ok(client)
+    }
+
+    fn path(&self) -> Vec<u32> {
+        Self::path_for(self.index)
+    }
+
+    fn path_for(index: u32) -> Vec<u32> {
+        vec![44 | 0x8000_0000, 60 | 0x8000_0000, 0x8000_0000, 0, index]
+    }
+}
+
+fn signature_from_trezor(
+    signature: trezor_client::client::Signature,
+) -> alloy::signers::Result<Signature> {
+    let v = normalize_v(signature.v).ok_or_else(|| {
+        alloy::signers::Error::other(anyhow::anyhow!("invalid Trezor signature parity"))
+    })?;
+    Ok(Signature::new(
+        U256::from_be_bytes(signature.r),
+        U256::from_be_bytes(signature.s),
+        v,
+    ))
+}
 
 /// Find similar symbols to a given input string.
 ///
@@ -247,9 +356,7 @@ pub async fn find_signer(
             }
         }
         for i in 0..10 {
-            if let Ok(trezor) =
-                TrezorSigner::new(signers::trezor::HDPath::TrezorLive(i), Some(1)).await
-            {
+            if let Ok(trezor) = TrezorTypedDataSigner::new(i, Some(1)).await {
                 if let Some(filter_by) = filter_by {
                     if filter_by.contains(&trezor.address()) {
                         return Ok(Box::new(trezor) as Box<_>);
@@ -324,7 +431,7 @@ pub async fn find_signers(
     }
 
     for i in 0..10 {
-        if let Ok(trezor) = TrezorSigner::new(signers::trezor::HDPath::TrezorLive(i), Some(1)).await
+        if let Ok(trezor) = TrezorTypedDataSigner::new(i, Some(1)).await
             && filter_by.contains(&trezor.address())
             && !found.contains(&trezor.address())
         {
@@ -357,7 +464,7 @@ pub async fn scan_hw_signers(
     }
 
     for i in 0..10 {
-        if let Ok(trezor) = TrezorSigner::new(signers::trezor::HDPath::TrezorLive(i), Some(1)).await
+        if let Ok(trezor) = TrezorTypedDataSigner::new(i, Some(1)).await
             && filter_by.contains(&trezor.address())
             && !already_found.contains(&trezor.address())
         {

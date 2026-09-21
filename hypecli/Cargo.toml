@@ -20,9 +20,8 @@ include = [
   "Cargo.lock"
 ]
 
-# [patch.crates-io]
-# alloy-signer-trezor = { git = "https://github.com/infinitefield/alloy-signer-trezor.git", branch = "main" }
-# trezor-client = { git = "https://github.com/infinitefield/trezor-firmware.git", branch = "main", subdirectory = "rust/trezor-client" }
+[patch.crates-io]
+trezor-client = { git = "https://github.com/infinitefield/trezor-firmware.git", branch = "feat/eip712-streaming-protocol" }
 
 [dependencies]
 hypersdk = { path = "..", version = "0.2.13" }
@@ -35,6 +34,7 @@ tokio = { version = "1.43.1", features = [
     "signal",
 ] }
 anyhow = "1"
+async-trait = "0.1"
 tabwriter = "1.4.0"
 enum_dispatch = "0.3.13"
 iroh = { version = "1.0.0", default-features = false }
@@ -59,3 +59,4 @@ rand_08 = { package = "rand", version = "0.8.5" }
 # For Iroh (0.9 universe)
 rand_09 = { package = "rand", version = "0.9.0" }
 dotenvy = "0.15.7"
+trezor-client = { version = "=0.1.6", default-features = false, features = ["ethereum"] }
