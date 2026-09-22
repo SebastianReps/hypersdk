@@ -432,13 +432,17 @@ Multi-Sig Sign (participates via P2P gossip network):
     --multi-sig-addr <MULTISIG_ADDRESS>
 
 Multi-Sig Send Asset:
-  hypecli multisig send-asset \
+  hypecli send \
     --chain mainnet \
     --private-key <HEX> \
     --multi-sig-addr <MULTISIG_ADDRESS> \
     --destination <RECIPIENT> \
     --token <TOKEN_NAME> \
     --amount <AMOUNT>
+
+  Add --local to require all signatures locally. Use --from and --to to select
+  balances or DEXes. Omit --destination for transfers within the multisig account.
+  The older `hypecli multisig send-asset` command remains supported.
 
 Multi-Sig Update Configuration:
   hypecli multisig update \
@@ -652,7 +656,8 @@ Withdraw USDC from a vault:
 EARN COMMANDS (Borrow/Lend Reserve)
 -----------------------------------
 
-Earn lends USDC to borrowers; suppliers earn the borrow interest. Token 0 is USDC.
+Select an Earn reserve with --token USDC or --token USDT0. The default is USDC.
+Symbols are case-insensitive, and numeric token indexes are also accepted.
 
 Supply USDC into the Earn reserve (omit --amount for the maximum available):
   hypecli earn supply \
@@ -669,10 +674,23 @@ Withdraw supplied USDC (omit --amount for the full position):
 Query reserve rates and your position:
   hypecli earn status --user <ADDRESS>
 
+Supply USDC from a multisig account:
+  hypecli earn supply \
+    --multi-sig-addr <MULTISIG_ADDRESS> \
+    --keystore my-wallet \
+    --token USDC \
+    --amount 100
+
+Other signers join using the printed `hypecli multisig sign` command.
+Add --local to require all signatures locally. Withdraw supports the same flags.
+For multisig positions, pass the multisig address to `earn status --user`.
+
   Arguments:
     --amount <DECIMAL>   Amount to supply or withdraw (omit = max)
-    --token <U32>        Reserve token index (default 0, USDC)
+    --token <SYMBOL_OR_INDEX>  Reserve token symbol or index (default USDC)
     --user <ADDRESS>     User address for status
+    --multi-sig-addr <ADDRESS>  Multisig account for supply or withdraw
+    --local             Collect only local signatures (requires --multi-sig-addr)
 
 SUBSCRIBE COMMANDS (Real-time WebSocket Data)
 ---------------------------------------------

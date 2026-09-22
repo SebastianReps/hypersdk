@@ -29,7 +29,7 @@ use iroh_mdns_address_lookup::MdnsAddressLookup;
 use iroh_tickets::endpoint::EndpointTicket;
 use strsim::levenshtein;
 
-use hypersdk::hypercore::{HttpClient, PerpMarket, PriceTick, SpotMarket};
+use hypersdk::hypercore::{HttpClient, PerpMarket, PriceTick, SpotMarket, SpotToken};
 
 use crate::{
     SignerArgs,
@@ -738,5 +738,56 @@ pub async fn resolve_asset_for_subscription(
                 coin: perp.name.clone(),
             })
         }
+    }
+}
+
+/// Resolve symbols using the selected chain's metadata, preserving numeric indexes.
+pub fn resolve_token<'a>(tokens: &'a [SpotToken], selector: &str) -> anyhow::Result<&'a SpotToken> {
+    let selector = selector.trim();
+    let index = selector.parse::<u32>().ok();
+    let mut matches = tokens.iter().filter(|token| match index {
+        Some(index) => token.index == index,
+        None => token.name.eq_ignore_ascii_case(selector),
+    });
+    let token = matches
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("unknown token '{selector}' on the selected chain"))?;
+    anyhow::ensure!(
+        matches.next().is_none(),
+        "ambiguous token symbol '{selector}'; use a numeric token index"
+    );
+    Ok(token)
+}
+
+#[cfg(test)]
+mod token_tests {
+    use super::{SpotToken, resolve_token};
+
+    fn token(name: &str, index: u32) -> SpotToken {
+        SpotToken {
+            name: name.into(),
+            index,
+            token_id: Default::default(),
+            evm_contract: None,
+            cross_chain_address: None,
+            sz_decimals: 2,
+            wei_decimals: 8,
+            evm_extra_decimals: 0,
+        }
+    }
+
+    #[test]
+    fn resolves_symbols_and_indexes_from_chain_metadata() {
+        // Deliberately use a different USDT0 index to catch hardcoded mappings.
+        let tokens = [token("USDC", 0), token("USDT0", 42), token("HYPE", 150)];
+        for (selector, expected) in [("USDC", 0), ("usdt0", 42), ("HyPe", 150), ("42", 42)] {
+            assert_eq!(resolve_token(&tokens, selector).unwrap().index, expected);
+        }
+        for selector in ["USDT", "999", ""] {
+            assert!(resolve_token(&tokens, selector).is_err());
+        }
+        let duplicates = [token("USDT0", 42), token("USDT0", 43)];
+        assert!(resolve_token(&duplicates, "USDT0").is_err());
+        assert_eq!(resolve_token(&duplicates, "43").unwrap().index, 43);
     }
 }

@@ -574,8 +574,10 @@ impl Action {
                 Some(typed_data) => signer.sign_dynamic_typed_data(&typed_data).await?,
                 None => {
                     let agent = self.agent(nonce, maybe_vault_address, expires_after, chain)?;
+                    let typed_data =
+                        TypedData::from_struct(&agent, Some(CORE_MAINNET_EIP712_DOMAIN.clone()));
                     signer
-                        .sign_typed_data(&agent, &CORE_MAINNET_EIP712_DOMAIN)
+                        .sign_dynamic_typed_data(&typed_data)
                         .await?
                 }
             };
@@ -1215,14 +1217,7 @@ impl MultiSigPayload {
                 None,
                 None,
             )?;
-            let agent = solidity::Agent {
-                source: if chain.is_mainnet() { "a" } else { "b" }.to_string(),
-                connectionId: connection_id,
-            };
-            Ok(signer
-                .sign_typed_data(&agent, &CORE_MAINNET_EIP712_DOMAIN)
-                .await?
-                .into())
+            crate::hypercore::signing::sign_l1_action(signer, chain, connection_id).await
         }
     }
 

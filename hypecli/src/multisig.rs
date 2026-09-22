@@ -14,7 +14,7 @@ use futures::{SinkExt, StreamExt};
 use hypersdk::{
     Address, Decimal,
     hypercore::{
-        self, AssetTarget, HttpClient, NonceHandler, SendAsset, SendToken, Signature,
+        self, AssetTarget, HttpClient, NonceHandler, Signature,
         api::{
             self, Action, ConvertToMultiSigUser, MultiSigAction, MultiSigPayload, SignersConfig,
         },
@@ -94,7 +94,7 @@ pub struct MultiSigSendAsset {
 
 impl MultiSigSendAsset {
     pub async fn run(self) -> anyhow::Result<()> {
-        send_asset(self).await
+        crate::send::SendCmd::from(self).run().await
     }
 }
 
@@ -189,61 +189,30 @@ const CONNECTING_STRINGS: &[&str] = &[
     "ConnectinG",
 ];
 
-async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
-    let hl = HttpClient::new(cmd.chain);
-    let multisig_config = hl.multi_sig_config(cmd.multi_sig_addr).await?;
-    println!("Can sign with:");
-    for signer in &multisig_config.authorized_users {
-        println!(" {}", signer);
+impl From<MultiSigSendAsset> for crate::send::SendCmd {
+    fn from(cmd: MultiSigSendAsset) -> Self {
+        Self {
+            signer: cmd.common,
+            token: cmd.token,
+            amount: cmd.amount,
+            destination: Some(cmd.to),
+            from: cmd
+                .source
+                .as_deref()
+                .unwrap_or("perp")
+                .parse()
+                .unwrap_or(AssetTarget::Perp),
+            to: cmd
+                .dest
+                .as_deref()
+                .unwrap_or("perp")
+                .parse()
+                .unwrap_or(AssetTarget::Perp),
+            from_subaccount: None,
+            multi_sig_addr: Some(cmd.multi_sig_addr),
+            local: cmd.local,
+        }
     }
-
-    let signers = find_signers(&cmd.common, &multisig_config.authorized_users).await?;
-    for s in &signers {
-        println!("Using signer {}", s.address());
-    }
-
-    let tokens = hypercore::mainnet().spot_tokens().await?;
-    let token = tokens
-        .iter()
-        .find(|token| token.name.eq_ignore_ascii_case(&cmd.token))
-        .ok_or(anyhow::anyhow!("token {} not found", cmd.token))?;
-
-    let nonce = NonceHandler::default().next();
-
-    let source_dex: AssetTarget = cmd
-        .source
-        .as_ref()
-        .map(|s| s.parse().unwrap_or(AssetTarget::Perp))
-        .unwrap_or(AssetTarget::Perp);
-
-    let destination_dex: AssetTarget = cmd
-        .dest
-        .as_ref()
-        .map(|s| s.parse().unwrap_or(AssetTarget::Perp))
-        .unwrap_or(AssetTarget::Perp);
-
-    let send_action = SendAsset {
-        destination: cmd.to,
-        source_dex,
-        destination_dex,
-        token: SendToken(token.clone()),
-        amount: cmd.amount,
-        from_sub_account: "".to_owned(),
-        nonce,
-    }
-    .into_action(cmd.chain);
-
-    execute_multisig_action(
-        cmd.multi_sig_addr,
-        hl,
-        signers,
-        Action::from(send_action),
-        nonce,
-        &multisig_config,
-        cmd.local,
-        &cmd.common.trezor,
-    )
-    .await
 }
 
 async fn update(cmd: UpdateMultiSigCmd) -> anyhow::Result<()> {
@@ -411,7 +380,7 @@ async fn sign(cmd: MultiSigSign) -> anyhow::Result<()> {
 /// Execute a multisig action by collecting signatures from authorized signers.
 ///
 /// This is the core multisig execution logic used by all multisig commands.
-async fn execute_multisig_action(
+pub(crate) async fn execute_multisig_action(
     multi_sig_addr: Address,
     hl: HttpClient,
     signers: Vec<Box<dyn Signer + Send + Sync>>,
@@ -485,7 +454,7 @@ async fn execute_multisig_action(
             println!("Success");
         }
         api::Response::Err(err) => {
-            println!("error: {err}");
+            anyhow::bail!("{err}");
         }
     }
 

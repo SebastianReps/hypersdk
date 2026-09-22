@@ -255,7 +255,7 @@ impl Signer for TrezorTypedDataSigner {
 
     async fn sign_dynamic_typed_data(&self, data: &TypedData) -> alloy::signers::Result<Signature> {
         let types = typed_data_types(data)?;
-        let domain = serde_json::to_value(&data.domain).map_err(alloy::signers::Error::other)?;
+        let domain = typed_data_domain(data)?;
         let mut client = self.client().map_err(alloy::signers::Error::other)?;
         let signature = client
             .ethereum_sign_typed_data(
@@ -266,7 +266,7 @@ impl Signer for TrezorTypedDataSigner {
                 &data.message,
             )
             .map_err(alloy::signers::Error::other)?;
-        signature_from_trezor(signature)
+        verify_typed_data_signature(signature_from_trezor(signature)?, data, self.address)
     }
 
     fn address(&self) -> Address {
@@ -278,6 +278,31 @@ impl Signer for TrezorTypedDataSigner {
     fn set_chain_id(&mut self, chain_id: Option<ChainId>) {
         self.chain_id = chain_id;
     }
+}
+
+fn typed_data_domain(data: &TypedData) -> alloy::signers::Result<serde_json::Value> {
+    let mut domain = serde_json::to_value(&data.domain).map_err(alloy::signers::Error::other)?;
+    if let Some(chain_id) = data.domain.chain_id {
+        // trezor-client decodes hex integers as bytes. Alloy's quantity encoding
+        // can have odd length (1337 -> 0x539), which that decoder turns into zero.
+        domain["chainId"] = format!("0x{}", hex::encode(chain_id.to_be_bytes::<32>())).into();
+    }
+    Ok(domain)
+}
+
+fn verify_typed_data_signature(
+    signature: Signature,
+    data: &TypedData,
+    expected: Address,
+) -> alloy::signers::Result<Signature> {
+    let hash = data.eip712_signing_hash()?;
+    let recovered = signature.recover_address_from_prehash(&hash)?;
+    if recovered != expected {
+        return Err(alloy::signers::Error::other(format!(
+            "Trezor signature does not match requested typed data: expected {expected}, recovered {recovered}"
+        )));
+    }
+    Ok(signature)
 }
 
 fn typed_data_types(
@@ -331,6 +356,70 @@ mod tests {
     use bip32::XPrv;
     use clap::{CommandFactory, Parser};
     use hypersdk::hypercore::PrivateKeySigner;
+
+    #[tokio::test]
+    async fn trezor_domain_encoding_preserves_l1_chain_id_and_signature() {
+        use serde_json::json;
+
+        let signer = PrivateKeySigner::random();
+        for chain_id in [
+            U256::from(1337),
+            U256::from(42161),
+            U256::from(421614),
+            U256::MAX,
+        ] {
+            let data: TypedData = serde_json::from_value(json!({
+                "types": {
+                    "Agent": [
+                        {"name": "source", "type": "string"},
+                        {"name": "connectionId", "type": "bytes32"}
+                    ]
+                },
+                "primaryType": "Agent",
+                "domain": {
+                    "name": "Exchange", "version": "1", "chainId": chain_id,
+                    "verifyingContract": Address::ZERO
+                },
+                "message": {"source": "a", "connectionId": B256::repeat_byte(42)}
+            }))
+            .unwrap();
+
+            let domain = typed_data_domain(&data).unwrap();
+            // Use the same byte-oriented hex decoding as trezor-client.
+            let encoded = domain["chainId"]
+                .as_str()
+                .unwrap()
+                .strip_prefix("0x")
+                .unwrap();
+            let bytes = hex::decode(encoded).unwrap();
+            assert_eq!(U256::from_be_slice(&bytes), chain_id);
+            let streamed = TypedData {
+                domain: serde_json::from_value(domain).unwrap(),
+                ..data.clone()
+            };
+            assert_eq!(
+                streamed.eip712_signing_hash().unwrap(),
+                data.eip712_signing_hash().unwrap()
+            );
+            let signature = signer.sign_dynamic_typed_data(&streamed).await.unwrap();
+            verify_typed_data_signature(signature, &data, signer.address()).unwrap();
+
+            if chain_id == U256::from(1337) {
+                let raw = serde_json::to_value(&data.domain).unwrap();
+                assert_eq!(raw["chainId"], "0x539");
+                // Reproduce the old client's silent fallback to a zero chain ID.
+                let bytes = hex::decode("539").unwrap_or_default();
+                let mut wrong_domain = data.domain.clone();
+                wrong_domain.chain_id = Some(U256::from_be_slice(&bytes));
+                let wrong = TypedData {
+                    domain: wrong_domain,
+                    ..data.clone()
+                };
+                let signature = signer.sign_dynamic_typed_data(&wrong).await.unwrap();
+                assert!(verify_typed_data_signature(signature, &data, signer.address()).is_err());
+            }
+        }
+    }
 
     #[test]
     fn typed_data_includes_domain_definition_without_changing_hash() {

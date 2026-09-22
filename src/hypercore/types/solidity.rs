@@ -6,6 +6,7 @@
 use alloy::sol;
 
 sol! {
+    #[derive(serde::Serialize)]
     struct Agent {
         string source;
         bytes32 connectionId;

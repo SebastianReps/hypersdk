@@ -44,15 +44,13 @@ pub async fn sign_l1_action<S: Signer + Send + Sync>(
     chain: Chain,
     connection_id: B256,
 ) -> anyhow::Result<Signature> {
-    let sig = signer
-        .sign_typed_data(
-            &solidity::Agent {
-                source: if chain.is_mainnet() { "a" } else { "b" }.to_string(),
-                connectionId: connection_id,
-            },
-            &CORE_MAINNET_EIP712_DOMAIN,
-        )
-        .await?;
+    let agent = solidity::Agent {
+        source: if chain.is_mainnet() { "a" } else { "b" }.to_string(),
+        connectionId: connection_id,
+    };
+    // Hardware signers need the typed fields, not just a precomputed hash.
+    let typed_data = TypedData::from_struct(&agent, Some(CORE_MAINNET_EIP712_DOMAIN.clone()));
+    let sig = signer.sign_dynamic_typed_data(&typed_data).await?;
     Ok(sig.into())
 }
 
