@@ -12,6 +12,7 @@ mod prio;
 mod send;
 mod subscribe;
 mod to_multisig;
+mod trezor;
 mod twap;
 mod utils;
 mod vault;
@@ -137,14 +138,16 @@ impl Command {
 pub struct SignerArgs {
     /// Private key for signing (hex format). Agent (API wallet) keys work
     /// for L1 actions such as orders and outcome operations.
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["trezor_path", "trezor_index"])]
     pub private_key: Option<String>,
     /// Foundry keystore.
-    #[arg(long, env = "HYPECLI_KEYSTORE")]
+    #[arg(long, env = "HYPECLI_KEYSTORE", conflicts_with_all = ["trezor_path", "trezor_index"])]
     pub keystore: Option<String>,
     /// Keystore password. Otherwise it'll be prompted.
     #[arg(long, env = "HYPECLI_PASSWORD")]
     pub password: Option<String>,
+    #[command(flatten)]
+    pub trezor: trezor::TrezorArgs,
     /// Target chain for the operation.
     #[arg(long, default_value = "mainnet")]
     pub chain: Chain,
@@ -192,6 +195,9 @@ Commands that modify state (orders, transfers, etc.) require authentication via 
   --private-key <HEX>   Direct private key (with or without 0x prefix)
   --keystore <NAME>     Foundry keystore name (located in ~/.foundry/keystores/)
   --password <PASS>     Keystore password (prompted if not provided)
+  --trezor-index <N>    Select Trezor address m/44'/60'/0'/0/N directly
+  --trezor-path <PATH>  Select a full Trezor derivation path directly
+  --trezor-scan-limit <N>  Search N addresses locally from a Trezor xpub (default: 10)
 
 Note: Ledger and Trezor hardware wallets are supported for multi-sig operations but NOT for
 order placement/cancellation (which require synchronous signing).

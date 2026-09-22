@@ -10,16 +10,14 @@
 //! - Fuzzy matching for better error messages
 //! - Common query arguments and formatting
 
+use std::path::PathBuf;
 use std::{env::home_dir, str::FromStr};
-use std::{fmt, path::PathBuf};
 
 use alloy::{
-    dyn_abi::TypedData,
-    primitives::{Address, B256, ChainId, Signature, U256, normalize_v},
+    primitives::Address,
     signers::{self, Signer, ledger::LedgerSigner},
 };
 use anyhow::Context;
-use async_trait::async_trait;
 use clap::ValueEnum;
 use hypersdk::hypercore::PrivateKeySigner;
 use iroh::{
@@ -30,114 +28,13 @@ use iroh::{
 use iroh_mdns_address_lookup::MdnsAddressLookup;
 use iroh_tickets::endpoint::EndpointTicket;
 use strsim::levenshtein;
-use trezor_client::client::Trezor;
 
 use hypersdk::hypercore::{HttpClient, PerpMarket, PriceTick, SpotMarket};
 
-use crate::SignerArgs;
-
-struct TrezorTypedDataSigner {
-    index: u32,
-    session_id: Vec<u8>,
-    address: Address,
-    chain_id: Option<ChainId>,
-}
-
-impl fmt::Debug for TrezorTypedDataSigner {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TrezorTypedDataSigner")
-            .field("index", &self.index)
-            .field("address", &self.address)
-            .finish()
-    }
-}
-
-#[async_trait]
-impl Signer for TrezorTypedDataSigner {
-    async fn sign_hash(&self, _hash: &B256) -> alloy::signers::Result<Signature> {
-        Err(alloy::signers::Error::UnsupportedOperation(
-            alloy::signers::UnsupportedSignerOperation::SignHash,
-        ))
-    }
-
-    async fn sign_dynamic_typed_data(&self, data: &TypedData) -> alloy::signers::Result<Signature> {
-        let message_hash = (data.primary_type != "EIP712Domain")
-            .then(|| data.hash_struct())
-            .transpose()
-            .map_err(alloy::signers::Error::other)?
-            .map(|hash| hash.as_slice().to_vec());
-        let mut client = self.client().map_err(alloy::signers::Error::other)?;
-        let signature = client
-            .ethereum_sign_typed_hash(
-                self.path(),
-                data.domain.separator().as_slice().to_vec(),
-                message_hash,
-            )
-            .map_err(alloy::signers::Error::other)?;
-
-        signature_from_trezor(signature)
-    }
-
-    fn address(&self) -> Address {
-        self.address
-    }
-
-    fn chain_id(&self) -> Option<ChainId> {
-        self.chain_id
-    }
-
-    fn set_chain_id(&mut self, chain_id: Option<ChainId>) {
-        self.chain_id = chain_id;
-    }
-}
-
-impl TrezorTypedDataSigner {
-    async fn new(index: u32, chain_id: Option<ChainId>) -> anyhow::Result<Self> {
-        let mut client = trezor_client::unique(false)?;
-        client.init_device(None)?;
-        let session_id = client
-            .features()
-            .ok_or_else(|| anyhow::anyhow!("could not retrieve Trezor features"))?
-            .session_id()
-            .to_vec();
-        let path = Self::path_for(index);
-        let address = client.ethereum_get_address(path)?.parse()?;
-
-        Ok(Self {
-            index,
-            session_id,
-            address,
-            chain_id,
-        })
-    }
-
-    fn client(&self) -> anyhow::Result<Trezor> {
-        let mut client = trezor_client::unique(false)?;
-        client.init_device(Some(self.session_id.clone()))?;
-        Ok(client)
-    }
-
-    fn path(&self) -> Vec<u32> {
-        Self::path_for(self.index)
-    }
-
-    fn path_for(index: u32) -> Vec<u32> {
-        vec![44 | 0x8000_0000, 60 | 0x8000_0000, 0x8000_0000, 0, index]
-    }
-}
-
-fn signature_from_trezor(
-    signature: trezor_client::client::Signature,
-) -> alloy::signers::Result<Signature> {
-    let v = normalize_v(signature.v).ok_or_else(|| {
-        alloy::signers::Error::other(anyhow::anyhow!("invalid Trezor signature parity"))
-    })?;
-    Ok(Signature::new(
-        U256::from_be_bytes(signature.r),
-        U256::from_be_bytes(signature.s),
-        v,
-    ))
-}
+use crate::{
+    SignerArgs,
+    trezor::{self, TrezorArgs},
+};
 
 /// Find similar symbols to a given input string.
 ///
@@ -296,7 +193,7 @@ pub fn find_signer_sync(cmd: &SignerArgs) -> anyhow::Result<PrivateKeySigner> {
 /// 1. Private key (if provided via `--private-key`)
 /// 2. Foundry keystore (if provided via `--keystore`)
 /// 3. Ledger hardware wallet (scans first 10 derivation paths)
-/// 4. Trezor hardware wallet (scans first 10 derivation paths)
+/// 4. Trezor hardware wallet (explicit path, cached paths, then local xpub discovery)
 ///
 /// For hardware wallets, the function searches through derivation paths
 /// until it finds one that matches an address in `searching_for`.
@@ -315,7 +212,7 @@ pub fn find_signer_sync(cmd: &SignerArgs) -> anyhow::Result<PrivateKeySigner> {
 /// Returns an error if:
 /// - Private key is invalid
 /// - Keystore file not found or password incorrect
-/// - No matching Ledger/Trezor key found in first 10 paths
+/// - No matching hardware wallet key found within the configured discovery range
 /// - No signer source provided
 pub async fn find_signer(
     cmd: &SignerArgs,
@@ -342,7 +239,7 @@ pub async fn find_signer(
             PrivateKeySigner::decrypt_keystore(keypath, password).context("decrypt_keystore")?,
         ) as Box<_>)
     } else {
-        for i in 0..10 {
+        for i in 0..if cmd.trezor.is_explicit() { 0 } else { 10 } {
             if let Ok(ledger) =
                 LedgerSigner::new(signers::ledger::HDPath::LedgerLive(i), Some(1)).await
             {
@@ -355,16 +252,11 @@ pub async fn find_signer(
                 }
             }
         }
-        for i in 0..10 {
-            if let Ok(trezor) = TrezorTypedDataSigner::new(i, Some(1)).await {
-                if let Some(filter_by) = filter_by {
-                    if filter_by.contains(&trezor.address()) {
-                        return Ok(Box::new(trezor) as Box<_>);
-                    }
-                } else {
-                    return Ok(Box::new(trezor) as Box<_>);
-                }
-            }
+        if let Some(trezor) = trezor::find_signers(&cmd.trezor, filter_by, true)?
+            .into_iter()
+            .next()
+        {
+            return Ok(Box::new(trezor));
         }
         Err(anyhow::anyhow!(
             "unable to find matching key in ledger or trezor"
@@ -379,7 +271,7 @@ pub async fn find_signer(
 /// a single CLI invocation to contribute multiple signatures (e.g. when
 /// a user controls several authorized hardware wallet keys).
 ///
-/// Sources checked: private key, keystore, Ledger (10 paths), Trezor (10 paths).
+/// Sources checked: private key, keystore, Ledger (10 paths), Trezor (configured discovery).
 pub async fn find_signers(
     cmd: &SignerArgs,
     filter_by: &[Address],
@@ -420,25 +312,7 @@ pub async fn find_signers(
         }
     }
 
-    for i in 0..10 {
-        if let Ok(ledger) = LedgerSigner::new(signers::ledger::HDPath::LedgerLive(i), Some(1)).await
-            && filter_by.contains(&ledger.address())
-            && !found.contains(&ledger.address())
-        {
-            found.push(ledger.address());
-            signers.push(Box::new(ledger));
-        }
-    }
-
-    for i in 0..10 {
-        if let Ok(trezor) = TrezorTypedDataSigner::new(i, Some(1)).await
-            && filter_by.contains(&trezor.address())
-            && !found.contains(&trezor.address())
-        {
-            found.push(trezor.address());
-            signers.push(Box::new(trezor));
-        }
-    }
+    signers.extend(scan_hw_signers(&cmd.trezor, filter_by, &found).await?);
 
     anyhow::ensure!(!signers.is_empty(), "no matching signers found");
     Ok(signers)
@@ -449,30 +323,34 @@ pub async fn find_signers(
 /// Used for the "swap device and rescan" flow during multisig signing.
 /// Returns any new signers whose addresses are in `filter_by` but not in `already_found`.
 pub async fn scan_hw_signers(
+    trezor_args: &TrezorArgs,
     filter_by: &[Address],
     already_found: &[Address],
-) -> Vec<Box<dyn Signer + Send + Sync + 'static>> {
+) -> anyhow::Result<Vec<Box<dyn Signer + Send + Sync + 'static>>> {
     let mut signers: Vec<Box<dyn Signer + Send + Sync + 'static>> = Vec::new();
+    let mut remaining: Vec<Address> = filter_by
+        .iter()
+        .copied()
+        .filter(|address| !already_found.contains(address))
+        .collect();
 
-    for i in 0..10 {
+    for i in 0..if trezor_args.is_explicit() { 0 } else { 10 } {
+        if remaining.is_empty() {
+            break;
+        }
         if let Ok(ledger) = LedgerSigner::new(signers::ledger::HDPath::LedgerLive(i), Some(1)).await
-            && filter_by.contains(&ledger.address())
-            && !already_found.contains(&ledger.address())
+            && remaining.contains(&ledger.address())
         {
+            remaining.retain(|address| *address != ledger.address());
             signers.push(Box::new(ledger));
         }
     }
 
-    for i in 0..10 {
-        if let Ok(trezor) = TrezorTypedDataSigner::new(i, Some(1)).await
-            && filter_by.contains(&trezor.address())
-            && !already_found.contains(&trezor.address())
-        {
-            signers.push(Box::new(trezor));
-        }
+    for trezor in trezor::find_signers(trezor_args, Some(&remaining), false)? {
+        signers.push(Box::new(trezor));
     }
 
-    signers
+    Ok(signers)
 }
 
 /// Parsed asset specification.

@@ -241,6 +241,7 @@ async fn send_asset(cmd: MultiSigSendAsset) -> anyhow::Result<()> {
         nonce,
         &multisig_config,
         cmd.local,
+        &cmd.common.trezor,
     )
     .await
 }
@@ -275,6 +276,7 @@ async fn update(cmd: UpdateMultiSigCmd) -> anyhow::Result<()> {
         nonce,
         &multisig_config,
         cmd.local,
+        &cmd.common.trezor,
     )
     .await
 }
@@ -312,6 +314,7 @@ async fn convert_to_normal_user(cmd: MultiSigConvertToNormalUser) -> anyhow::Res
         nonce,
         &multisig_config,
         cmd.local,
+        &cmd.common.trezor,
     )
     .await
 }
@@ -374,10 +377,11 @@ async fn sign(cmd: MultiSigSign) -> anyhow::Result<()> {
                         break;
                     }
                     let new_signers = utils::scan_hw_signers(
+                        &cmd.common.trezor,
                         &multisig_config.authorized_users,
                         &signed_addresses,
                     )
-                    .await;
+                    .await?;
                     if new_signers.is_empty() {
                         println!("No new hardware wallets found.");
                         continue;
@@ -415,6 +419,7 @@ async fn execute_multisig_action(
     nonce: u64,
     multisig_config: &hypersdk::hypercore::MultiSigConfig,
     local: bool,
+    trezor_args: &crate::trezor::TrezorArgs,
 ) -> anyhow::Result<()> {
     let lead_signer = &signers[0];
 
@@ -448,6 +453,7 @@ async fn execute_multisig_action(
             multi_sig_addr,
             multisig_config,
             lead_signer,
+            trezor_args,
         )
         .await?;
     } else if signatures.len() < multisig_config.threshold {
@@ -495,6 +501,7 @@ async fn collect_remote_signatures(
     multi_sig_addr: Address,
     multisig_config: &hypersdk::hypercore::MultiSigConfig,
     lead_signer: &(dyn Signer + Send + Sync),
+    trezor_args: &crate::trezor::TrezorArgs,
 ) -> anyhow::Result<()> {
     let key = utils::make_key(lead_signer);
 
@@ -523,8 +530,12 @@ async fn collect_remote_signatures(
         if input[0] != b'\n' {
             break;
         }
-        let new_signers =
-            utils::scan_hw_signers(&multisig_config.authorized_users, signed_addresses).await;
+        let new_signers = utils::scan_hw_signers(
+            trezor_args,
+            &multisig_config.authorized_users,
+            signed_addresses,
+        )
+        .await?;
         if new_signers.is_empty() {
             println!("No new hardware wallets found.");
             continue;

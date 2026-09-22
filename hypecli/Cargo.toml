@@ -60,3 +60,5 @@ rand_08 = { package = "rand", version = "0.8.5" }
 rand_09 = { package = "rand", version = "0.9.0" }
 dotenvy = "0.15.7"
 trezor-client = { version = "=0.1.6", default-features = false, features = ["ethereum"] }
+bip32 = { version = "0.5", default-features = false, features = ["std", "secp256k1"] }
+tempfile = "3"

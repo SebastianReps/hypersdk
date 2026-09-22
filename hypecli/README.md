@@ -277,7 +277,7 @@ hypecli multisig send-asset \
   --keystore my-wallet
 ```
 
-If no wallet is detected, `hypecli` defaults to a connected Ledger, if any.
+Without signing credentials, `hypecli` searches connected Ledger and Trezor devices.
 
 **Output:**
 
@@ -326,7 +326,23 @@ You can provide signing credentials via:
 
 - `--private-key 0x...` - Direct private key (hex format)
 - `--keystore filename` - Foundry keystore file (prompts for password)
-- No flag - Automatically searches connected Ledger devices
+- `--trezor-index N` - Select Trezor address `m/44'/60'/0'/0/N` directly
+- `--trezor-path PATH` - Select a full Trezor derivation path directly
+- No flag - Automatically searches connected Ledger and Trezor devices
+
+Trezor discovery checks saved paths, then requests one xpub for `m/44'/60'/0'/0`
+and derives candidate addresses locally. It searches indices 0–9 by default;
+`--trezor-scan-limit N` changes that limit. Explicit paths or indices skip discovery
+and cannot be combined with private-key or keystore credentials. Without an
+authorized-address filter, Trezor uses index 0 unless a path or index is specified.
+
+Successful address-to-path matches are saved in `~/.cache/hypecli/trezor-paths/`
+and checked against the connected wallet before reuse. No xpubs, private keys,
+passphrases, or session IDs are saved. Delete that directory to clear the hints.
+The same options apply when rescanning after swapping hardware wallets.
+
+`hypecli account test-signer --trezor-index N` tests the selected address by
+signing a test message and verifying its signature; it submits no transaction.
 
 For keystores:
 
