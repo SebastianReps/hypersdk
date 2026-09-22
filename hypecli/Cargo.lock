@@ -2402,7 +2402,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.5",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -6856,7 +6856,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -7253,12 +7253,13 @@ dependencies = [
 [[package]]
 name = "trezor-client"
 version = "0.1.6"
-source = "git+https://github.com/infinitefield/trezor-firmware.git?branch=hypecli-passphrase#cadc114e1bac3ae1ce8b32fbf92e84bc9ad6928c"
+source = "git+https://github.com/infinitefield/trezor-firmware.git?branch=hypecli-passphrase#a748d3599e217eff13f065057440114160985442"
 dependencies = [
  "byteorder",
  "hex",
  "protobuf",
  "rusb",
+ "serde_json",
  "thiserror 2.0.20",
  "tracing",
 ]

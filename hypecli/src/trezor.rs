@@ -254,17 +254,19 @@ impl Signer for TrezorTypedDataSigner {
     }
 
     async fn sign_dynamic_typed_data(&self, data: &TypedData) -> alloy::signers::Result<Signature> {
-        let message_hash = (data.primary_type != "EIP712Domain")
-            .then(|| data.hash_struct())
-            .transpose()
-            .map_err(alloy::signers::Error::other)?
-            .map(|hash| hash.as_slice().to_vec());
+        let types = serde_json::to_value(&data.resolver).map_err(alloy::signers::Error::other)?;
+        let types = types
+            .as_object()
+            .ok_or_else(|| alloy::signers::Error::other("invalid EIP-712 type definitions"))?;
+        let domain = serde_json::to_value(&data.domain).map_err(alloy::signers::Error::other)?;
         let mut client = self.client().map_err(alloy::signers::Error::other)?;
         let signature = client
-            .ethereum_sign_typed_hash(
+            .ethereum_sign_typed_data(
                 self.path.iter().map(u32::from).collect(),
-                data.domain.separator().as_slice().to_vec(),
-                message_hash,
+                &data.primary_type,
+                types,
+                &domain,
+                &data.message,
             )
             .map_err(alloy::signers::Error::other)?;
         signature_from_trezor(signature)
