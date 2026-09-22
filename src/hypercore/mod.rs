@@ -89,6 +89,8 @@
 pub mod error;
 pub mod http;
 pub mod signing;
+#[cfg(test)]
+mod signing_tests;
 pub mod types;
 mod utils;
 pub mod ws;

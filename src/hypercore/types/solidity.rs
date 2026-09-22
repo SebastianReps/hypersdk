@@ -148,8 +148,9 @@ sol! {
     struct TokenDelegate {
         string hyperliquidChain;
         address validator;
-        bool isUndelegate;
         uint64 wei;
+        bool isUndelegate;
+        uint64 nonce;
     }
 }
 

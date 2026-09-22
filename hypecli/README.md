@@ -317,6 +317,23 @@ The same token syntax works for supply, withdrawal, and status.
 Omitting `--amount` supplies or withdraws the maximum.
 Query the multisig position with `hypecli earn status --user <MULTISIG_ADDRESS>`.
 
+##### Multisig on Other Actions
+
+The same `--multi-sig-addr <ADDRESS>` and `--local` options work on:
+
+- `order limit`, `order market`, and `order cancel`
+- `vault deposit` and `vault withdraw`
+- `outcome split`, `outcome merge`, `outcome merge-question`, and `outcome negate`
+- `prio bid`
+
+These commands, Send, and Earn share the same software-key, Ledger, and Trezor
+signing flow. Omit `--multi-sig-addr` to sign with a single wallet. Multisig
+participants must be authorized signers of the target account; other participants
+join with `hypecli multisig sign`. `--local` requires `--multi-sig-addr`.
+
+Automated `twap` still requires a private key or keystore because it continuously
+places, modifies, and cancels orders.
+
 ##### Signing a Transaction
 
 Other authorized signers connect to the initiator using the endpoint ticket:

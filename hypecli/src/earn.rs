@@ -10,12 +10,11 @@ use alloy::primitives::Address;
 use clap::{Args, Subcommand};
 use hypersdk::Decimal;
 use hypersdk::hypercore::api::{Action, BorrowLendAction, BorrowLendOperation};
-use hypersdk::hypercore::{Chain, HttpClient, NonceHandler};
+use hypersdk::hypercore::{Chain, HttpClient};
 use serde::Deserialize;
 
-use crate::SignerArgs;
-use crate::multisig::execute_multisig_action;
-use crate::utils::{find_signer_sync, find_signers, resolve_token};
+use crate::action::ActionArgs;
+use crate::utils::resolve_token;
 
 /// Earn supply and withdrawal commands.
 #[derive(Subcommand)]
@@ -62,26 +61,8 @@ async fn execute_transfer(
         token: token.index,
         amount: cmd.amount,
     };
-    if let Some(multi_sig_addr) = cmd.multi_sig_addr {
-        let config = client.multi_sig_config(multi_sig_addr).await?;
-        let signers = find_signers(&cmd.signer, &config.authorized_users).await?;
-        return execute_multisig_action(
-            multi_sig_addr,
-            client,
-            signers,
-            Action::BorrowLend(action),
-            NonceHandler::default().next(),
-            &config,
-            cmd.local,
-            &cmd.signer.trezor,
-        )
-        .await;
-    }
-
-    let signer = find_signer_sync(&cmd.signer)?;
-    let nonce = NonceHandler::default().next();
-    client
-        .borrow_lend(&signer, action, nonce, None, None)
+    cmd.signer
+        .execute_default(client, |_, _| Action::BorrowLend(action))
         .await?;
     println!("{} successfully.", past);
     Ok(())
@@ -92,7 +73,7 @@ async fn execute_transfer(
 pub struct EarnTransferCmd {
     #[deref]
     #[command(flatten)]
-    pub signer: SignerArgs,
+    pub signer: ActionArgs,
 
     /// Amount to supply or withdraw. Omit for the maximum available.
     #[arg(long)]
@@ -101,14 +82,6 @@ pub struct EarnTransferCmd {
     /// Reserve token symbol or index (e.g. USDC, USDT0, or 0)
     #[arg(long, default_value = "USDC", value_name = "SYMBOL_OR_INDEX")]
     pub token: String,
-
-    /// Supply or withdraw on behalf of this multi-sig wallet
-    #[arg(long)]
-    pub multi_sig_addr: Option<Address>,
-
-    /// Sign and submit using only local signers, without starting P2P gossip
-    #[arg(long, requires = "multi_sig_addr")]
-    pub local: bool,
 }
 
 /// Arguments for the Earn status query.
@@ -268,6 +241,44 @@ mod tests {
         }
         fn set_chain_id(&mut self, chain_id: Option<ChainId>) {
             self.0.set_chain_id(chain_id);
+        }
+    }
+
+    #[tokio::test]
+    async fn user_signed_actions_support_boxed_typed_data_only_signers() {
+        let signer: Box<dyn Signer + Send + Sync> =
+            Box::new(TypedDataOnlySigner(PrivateKeySigner::random()));
+        use serde_json::json;
+        let address = "0x2222222222222222222222222222222222222222";
+        let cases = [
+            json!({"type":"approveAgent", "agentAddress":address,"agentName":null}),
+            json!({"type":"approveBuilderFee", "builder":address,"maxFeeRate":"0.001%"}),
+            json!({"type":"tokenDelegate", "validator":address,"wei":1000,"isUndelegate":false}),
+            json!({"type":"withdraw3", "destination":address,"amount":"10","time":1}),
+        ];
+        for mut case in cases {
+            let chain = Chain::Mainnet;
+            let nonce = 1;
+            case["signatureChainId"] = "0xa4b1".into();
+            case["hyperliquidChain"] = "Mainnet".into();
+            case["nonce"] = nonce.into();
+            let action: Action = serde_json::from_value(case).unwrap();
+            let ordinary = action
+                .clone()
+                .sign(&signer, nonce, None, None, chain)
+                .await
+                .unwrap();
+            assert_eq!(ordinary.recover(chain).unwrap(), signer.address());
+            let payload = MultiSigPayload {
+                multi_sig_user: "0x1111111111111111111111111111111111111111".into(),
+                outer_signer: signer.address().to_string().to_lowercase(),
+                action: Box::new(action),
+            };
+            let sig = payload.sign(&signer, nonce, chain).await.unwrap();
+            assert_eq!(
+                payload.recover(&sig, nonce, chain).unwrap(),
+                signer.address()
+            );
         }
     }
 

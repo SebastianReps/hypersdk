@@ -1,4 +1,5 @@
 mod account;
+mod action;
 mod balances;
 mod earn;
 mod markets;
@@ -130,10 +131,7 @@ impl Command {
     }
 }
 
-/// Common arguments for multi-signature commands.
-///
-/// These arguments are shared across all multi-sig operations to specify
-/// the signer credentials and target multi-sig wallet.
+/// Signer credentials and target chain, shared by signed commands.
 #[derive(Args)]
 pub struct SignerArgs {
     /// Private key for signing (hex format). Agent (API wallet) keys work
@@ -199,8 +197,9 @@ Commands that modify state (orders, transfers, etc.) require authentication via 
   --trezor-path <PATH>  Select a full Trezor derivation path directly
   --trezor-scan-limit <N>  Search N addresses locally from a Trezor xpub (default: 10)
 
-Note: Ledger and Trezor hardware wallets are supported for multi-sig operations but NOT for
-order placement/cancellation (which require synchronous signing).
+Orders, sends, Earn, vault transfers, outcome operations, and priority bids support Ledger
+and Trezor. Add --multi-sig-addr <ADDRESS> for multisig and --local to require local signers.
+Automated TWAP requires a private key or keystore for continuous signing.
 
 Agent (API wallet) private keys are accepted for L1 actions (orders, TWAP, vault transfers,
 outcome operations); the exchange attributes the action to the master account. User-signed
@@ -746,7 +745,7 @@ Workflow 8: Stream HIP3 DEX Candle Data as JSON
 ERROR HANDLING
 --------------
 Common error scenarios:
-  - "Order operations require a private key or keystore" - Ledger/Trezor not supported for orders
+  - Automated TWAP requires --private-key or --keystore
   - "keystore doesn't exist" - Check ~/.foundry/keystores/ for available keystores
   - "CLOID must be exactly 16 bytes" - Ensure CLOID is 32 hex characters
   - "Perpetual market 'X' not found" - Use `hypecli perps` to list valid market names

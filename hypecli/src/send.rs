@@ -7,14 +7,11 @@ use alloy::primitives::Address;
 use clap::Args;
 use hypersdk::{
     Decimal,
-    hypercore::{
-        AssetTarget, HttpClient, NonceHandler, SendAsset, SendToken, SpotToken, api::Action,
-    },
+    hypercore::{AssetTarget, HttpClient, SendAsset, SendToken, SpotToken, api::Action},
 };
 
-use crate::SignerArgs;
-use crate::multisig::execute_multisig_action;
-use crate::utils::{find_signer_sync, find_signers, resolve_token};
+use crate::action::ActionArgs;
+use crate::utils::resolve_token;
 
 /// Send assets between accounts or DEXes.
 ///
@@ -49,7 +46,7 @@ use crate::utils::{find_signer_sync, find_signers, resolve_token};
 pub struct SendCmd {
     #[deref]
     #[command(flatten)]
-    pub signer: SignerArgs,
+    pub signer: ActionArgs,
 
     /// Token to send (symbol or index, e.g., "USDC", "USDT0", "HYPE", or 0)
     #[arg(long)]
@@ -74,14 +71,6 @@ pub struct SendCmd {
     /// Source subaccount name (if sending from a subaccount)
     #[arg(long)]
     pub from_subaccount: Option<String>,
-
-    /// Send on behalf of this multi-sig wallet
-    #[arg(long)]
-    pub multi_sig_addr: Option<Address>,
-
-    /// Sign and submit using only local signers, without starting P2P gossip
-    #[arg(long, requires = "multi_sig_addr")]
-    pub local: bool,
 }
 
 impl SendCmd {
@@ -91,39 +80,21 @@ impl SendCmd {
         let tokens = client.spot_tokens().await?;
         let token = resolve_token(&tokens, &self.token)?;
 
-        if let Some(multi_sig_addr) = self.multi_sig_addr {
-            let config = client.multi_sig_config(multi_sig_addr).await?;
-            let signers = find_signers(&self.signer, &config.authorized_users).await?;
-            let nonce = NonceHandler::default().next();
-            let send = self.build_transfer(multi_sig_addr, token.clone(), nonce);
-            return execute_multisig_action(
-                multi_sig_addr,
-                client,
-                signers,
-                Action::from(send.into_action(self.chain)),
-                nonce,
-                &config,
-                self.local,
-                &self.signer.trezor,
-            )
-            .await;
-        }
-
-        let signer = find_signer_sync(&self.signer)?;
-        let nonce = NonceHandler::default().next();
-        let send = self.build_transfer(signer.address(), token.clone(), nonce);
-
-        println!(
-            "Sending {} {} from {} to {}",
-            self.amount, token.name, self.from, self.to
-        );
-        println!("  From: {}", signer.address());
-        println!("  To:   {}", send.destination);
-        if let Some(ref sub) = self.from_subaccount {
-            println!("  Subaccount: {}", sub);
-        }
-
-        client.send_asset(&signer, send, nonce).await?;
+        self.signer
+            .execute_default(client, |account, nonce| {
+                let send = self.build_transfer(account, token.clone(), nonce);
+                println!(
+                    "Sending {} {} from {} to {}",
+                    self.amount, token.name, self.from, self.to
+                );
+                println!("  From: {}", account);
+                println!("  To:   {}", send.destination);
+                if let Some(ref sub) = self.from_subaccount {
+                    println!("  Subaccount: {}", sub);
+                }
+                Action::from(send.into_action(self.chain))
+            })
+            .await?;
 
         println!("Success!");
 
