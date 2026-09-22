@@ -7253,7 +7253,7 @@ dependencies = [
 [[package]]
 name = "trezor-client"
 version = "0.1.6"
-source = "git+https://github.com/infinitefield/trezor-firmware.git?branch=hypecli-passphrase#a748d3599e217eff13f065057440114160985442"
+source = "git+https://github.com/infinitefield/trezor-firmware.git?branch=hypecli-eip712#d5418c862ee97a9ca3c618e74319f39b3dfdc5f2"
 dependencies = [
  "byteorder",
  "hex",

@@ -21,7 +21,7 @@ include = [
 ]
 
 [patch.crates-io]
-trezor-client = { git = "https://github.com/infinitefield/trezor-firmware.git", branch = "hypecli-passphrase" }
+trezor-client = { git = "https://github.com/infinitefield/trezor-firmware.git", branch = "hypecli-eip712" }
 
 [dependencies]
 hypersdk = { path = "..", version = "0.2.13" }
