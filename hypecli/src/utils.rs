@@ -23,7 +23,7 @@ use hypersdk::hypercore::PrivateKeySigner;
 use iroh::{
     Endpoint, SecretKey,
     address_lookup::{dns::DnsAddressLookup, pkarr::PkarrPublisher},
-    endpoint::presets::Empty,
+    endpoint::presets::Minimal,
 };
 use iroh_mdns_address_lookup::MdnsAddressLookup;
 use iroh_tickets::endpoint::EndpointTicket;
@@ -124,7 +124,7 @@ pub async fn start_gossip(
     key: iroh::SecretKey,
     wait_online: bool,
 ) -> anyhow::Result<(Endpoint, EndpointTicket)> {
-    let endpoint = Endpoint::builder(Empty)
+    let endpoint = Endpoint::builder(Minimal)
         .secret_key(key)
         .relay_mode(iroh::RelayMode::Default)
         .address_lookup(DnsAddressLookup::n0_dns())
@@ -140,6 +140,23 @@ pub async fn start_gossip(
     }
 
     Ok((endpoint, ticket))
+}
+
+#[cfg(test)]
+mod gossip_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn gossip_endpoint_binds_with_crypto_provider() {
+        let (endpoint, _) = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            start_gossip(SecretKey::generate(), false),
+        )
+        .await
+        .expect("gossip endpoint binding timed out")
+        .expect("gossip endpoint should bind with a compatible TLS provider");
+        endpoint.close().await;
+    }
 }
 
 /// Finds and loads a synchronous signer (private key or keystore only).

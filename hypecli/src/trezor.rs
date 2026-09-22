@@ -254,17 +254,14 @@ impl Signer for TrezorTypedDataSigner {
     }
 
     async fn sign_dynamic_typed_data(&self, data: &TypedData) -> alloy::signers::Result<Signature> {
-        let types = serde_json::to_value(&data.resolver).map_err(alloy::signers::Error::other)?;
-        let types = types
-            .as_object()
-            .ok_or_else(|| alloy::signers::Error::other("invalid EIP-712 type definitions"))?;
+        let types = typed_data_types(data)?;
         let domain = serde_json::to_value(&data.domain).map_err(alloy::signers::Error::other)?;
         let mut client = self.client().map_err(alloy::signers::Error::other)?;
         let signature = client
             .ethereum_sign_typed_data(
                 self.path.iter().map(u32::from).collect(),
                 &data.primary_type,
-                types,
+                &types,
                 &domain,
                 &data.message,
             )
@@ -280,6 +277,24 @@ impl Signer for TrezorTypedDataSigner {
     }
     fn set_chain_id(&mut self, chain_id: Option<ChainId>) {
         self.chain_id = chain_id;
+    }
+}
+
+fn typed_data_types(
+    data: &TypedData,
+) -> alloy::signers::Result<serde_json::Map<String, serde_json::Value>> {
+    // Alloy hashes the domain separately, so SDK payloads can omit its type.
+    // Trezor streams its fields and needs the definition matching that domain.
+    let mut resolver = data.resolver.clone();
+    resolver
+        .ingest_string(data.domain.encode_type())
+        .map_err(alloy::signers::Error::other)?;
+    let types = serde_json::to_value(&resolver).map_err(alloy::signers::Error::other)?;
+    match types {
+        serde_json::Value::Object(types) => Ok(types),
+        _ => Err(alloy::signers::Error::other(
+            "invalid EIP-712 type definitions",
+        )),
     }
 }
 
@@ -316,6 +331,104 @@ mod tests {
     use bip32::XPrv;
     use clap::{CommandFactory, Parser};
     use hypersdk::hypercore::PrivateKeySigner;
+
+    #[test]
+    fn typed_data_includes_domain_definition_without_changing_hash() {
+        use serde_json::json;
+
+        // Like the SDK's manually built typed data, this omits EIP712Domain.
+        let data: TypedData = serde_json::from_value(json!({
+            "types": {
+                "HyperliquidTransaction:SendMultiSig": [
+                    {"name": "hyperliquidChain", "type": "string"},
+                    {"name": "multiSigActionHash", "type": "bytes32"},
+                    {"name": "nonce", "type": "uint64"}
+                ]
+            },
+            "primaryType": "HyperliquidTransaction:SendMultiSig",
+            "domain": {
+                "name": "HyperliquidSignTransaction",
+                "version": "1",
+                "chainId": 42161,
+                "verifyingContract": Address::ZERO
+            },
+            "message": {
+                "hyperliquidChain": "Mainnet",
+                "multiSigActionHash": B256::ZERO,
+                "nonce": 123
+            }
+        }))
+        .unwrap();
+        let original_types = serde_json::to_value(&data.resolver).unwrap();
+        let types = typed_data_types(&data).unwrap();
+        assert_eq!(
+            types["EIP712Domain"],
+            json!([
+                {"name": "name", "type": "string"},
+                {"name": "version", "type": "string"},
+                {"name": "chainId", "type": "uint256"},
+                {"name": "verifyingContract", "type": "address"}
+            ])
+        );
+        assert_eq!(
+            types[&data.primary_type],
+            original_types[&data.primary_type]
+        );
+        assert_eq!(
+            serde_json::to_value(&data.resolver).unwrap(),
+            original_types
+        );
+
+        // Hash the streamed domain as an ordinary struct, as Trezor does.
+        let streamed_domain = TypedData {
+            domain: Default::default(),
+            resolver: serde_json::from_value(json!(types)).unwrap(),
+            primary_type: "EIP712Domain".into(),
+            message: serde_json::to_value(&data.domain).unwrap(),
+        };
+        assert_eq!(
+            streamed_domain.hash_struct().unwrap(),
+            data.domain.separator()
+        );
+        let normalized = TypedData {
+            resolver: streamed_domain.resolver,
+            ..data.clone()
+        };
+        assert_eq!(
+            normalized.eip712_signing_hash().unwrap(),
+            data.eip712_signing_hash().unwrap()
+        );
+        assert_eq!(typed_data_types(&normalized).unwrap(), types);
+    }
+
+    #[test]
+    fn typed_data_domain_definition_uses_only_present_fields() {
+        use serde_json::json;
+
+        for (domain, expected) in [
+            (json!({}), json!([])),
+            (
+                json!({"name": "Test", "salt": B256::ZERO}),
+                json!([
+                    {"name": "name", "type": "string"},
+                    {"name": "salt", "type": "bytes32"}
+                ]),
+            ),
+        ] {
+            let data: TypedData = serde_json::from_value(json!({
+                "types": {
+                    "EIP712Domain": [{"name": "chainId", "type": "uint256"}],
+                    "Message": [{"name": "value", "type": "bool"}]
+                },
+                "primaryType": "Message",
+                "domain": domain,
+                "message": {"value": true}
+            }))
+            .unwrap();
+            let types = typed_data_types(&data).unwrap();
+            assert_eq!(types["EIP712Domain"], expected);
+        }
+    }
 
     #[derive(Default)]
     struct FakeDevice {
