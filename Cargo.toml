@@ -27,6 +27,10 @@ exclude = [
   "/.gitignore",
 ]
 
+[lib]
+name = "hypersdk"
+crate-type = ["cdylib"] # Erzeugt eine .so Datei für Android
+
 [[example]]
 name = "approve-agent"
 path = "examples/hypercore/approve_agent.rs"
